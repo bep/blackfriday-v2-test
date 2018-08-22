@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"log"
 	"os"
 
@@ -17,15 +16,16 @@ func main() {
 	}
 	defer f.Close()
 
-	var mod RenderModifier
-
-	fmt.Println(">>", mod)
-
 	var b bytes.Buffer
 	run(md, &b)
 	b.WriteTo(f)
 
 	//fmt.Println("BlackFriday v2 Test:\n", string(output))
+}
+
+type mods struct {
+	pos       int
+	modifiers []RenderModifier
 }
 
 func run(input string, out *bytes.Buffer, opts ...blackfriday.Option) {
@@ -41,29 +41,28 @@ func run(input string, out *bytes.Buffer, opts ...blackfriday.Option) {
 	ast := parser.Parse([]byte(input))
 	r.RenderHeader(out, ast)
 
-	modsMap := make(map[*blackfriday.Node][]RenderModifier)
+	modsMap := make(map[*blackfriday.Node]*mods)
 
-	// The hooks may be stateful.
-	var getRenderMods = func(node *blackfriday.Node, entering bool) []RenderModifier {
-		var mods []RenderModifier
-		if entering {
-			mods = GetRenderMods(node.Type)
-			if mods != nil {
-				modsMap[node] = mods
-			}
-		} else {
-			mods = modsMap[node]
+	getMods := func(node *blackfriday.Node) *mods {
+		if m, found := modsMap[node]; found {
+			return m
 		}
-		return mods
+		rm := GetRenderMods(node.Type)
+		if rm == nil {
+			return nil
+		}
+		m := &mods{modifiers: rm, pos: out.Len()}
+		modsMap[node] = m
+		return m
 	}
 
 	ast.Walk(func(node *blackfriday.Node, entering bool) blackfriday.WalkStatus {
 
-		mods := getRenderMods(node, entering)
+		mods := getMods(node)
 
-		if entering {
-			for _, mod := range mods {
-				status := mod(out, node, RenderStart)
+		if entering && mods != nil {
+			for _, mod := range mods.modifiers {
+				status := mod(out, mods.pos, node, RenderStart)
 				if status == WalkStatusDone {
 					return blackfriday.SkipChildren
 				}
@@ -74,14 +73,16 @@ func run(input string, out *bytes.Buffer, opts ...blackfriday.Option) {
 			return status
 		}
 
-		for _, mod := range mods {
-			state := RenderEntered
-			if !entering {
-				state = RenderDone
-			}
-			status := mod(out, node, state)
-			if status == WalkStatusDone {
-				return blackfriday.SkipChildren
+		if mods != nil {
+			for _, mod := range mods.modifiers {
+				state := RenderEntered
+				if !entering {
+					state = RenderDone
+				}
+				status := mod(out, mods.pos, node, state)
+				if status == WalkStatusDone {
+					return blackfriday.SkipChildren
+				}
 			}
 		}
 
