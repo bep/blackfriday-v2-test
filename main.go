@@ -47,7 +47,7 @@ func run(input string, out *bytes.Buffer, opts ...blackfriday.Option) {
 		if m, found := modsMap[node]; found {
 			return m
 		}
-		rm := GetRenderMods(node.Type)
+		rm := GetRenderMods(node)
 		if rm == nil {
 			return nil
 		}

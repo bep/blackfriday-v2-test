@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/russross/blackfriday"
-	"github.com/sanity-io/litter"
 )
 
 type RenderStep int
@@ -24,15 +23,38 @@ const (
 
 type RenderModifier func(b *bytes.Buffer, pos int, node *blackfriday.Node, step RenderStep) WalkStatus
 
-var renderMods = map[blackfriday.NodeType][]RenderModifier{
-	blackfriday.CodeBlock: []RenderModifier{codeBlock},
-	blackfriday.List:      []RenderModifier{taskList},
-	blackfriday.Text:      []RenderModifier{taskListItem},
+func newSingle(nt blackfriday.NodeType) [3]blackfriday.NodeType {
+	return [3]blackfriday.NodeType{-1, -1, nt}
 }
 
-func GetRenderMods(nt blackfriday.NodeType) []RenderModifier {
-	return renderMods[nt]
+var renderMods = map[[3]blackfriday.NodeType][]RenderModifier{
+	newSingle(blackfriday.CodeBlock): []RenderModifier{codeBlock},
+	newSingle(blackfriday.List):      []RenderModifier{taskList},
+	[3]blackfriday.NodeType{blackfriday.Item, blackfriday.Paragraph, blackfriday.Text}: []RenderModifier{taskListItem},
+}
 
+func GetRenderMods(node *blackfriday.Node) []RenderModifier {
+	k := newSingle(node.Type)
+	var mods []RenderModifier
+
+	if m, found := renderMods[k]; found {
+		mods = append(mods, m...)
+	}
+
+	if node.Parent != nil {
+		k[1] = node.Parent.Type
+		if m, found := renderMods[k]; found {
+			mods = append(mods, m...)
+		}
+		if node.Parent.Parent != nil {
+			k[0] = node.Parent.Parent.Type
+			if m, found := renderMods[k]; found {
+				mods = append(mods, m...)
+			}
+		}
+	}
+
+	return mods
 }
 
 func codeBlock(b *bytes.Buffer, pos int, node *blackfriday.Node, step RenderStep) WalkStatus {
@@ -50,7 +72,6 @@ func taskList(b *bytes.Buffer, pos int, node *blackfriday.Node, step RenderStep)
 	if b.Len() > pos {
 		list := b.Bytes()[pos:]
 
-		//	fmt.Println(">>LIST:", string(list))
 		if bytes.Contains(list, []byte("task-list-item")) {
 			// Find the index of the first >, it might be 3 or 4 depending on whether
 			// there is a new line at the start, but this is safer than just hardcoding it.
@@ -68,24 +89,20 @@ func taskList(b *bytes.Buffer, pos int, node *blackfriday.Node, step RenderStep)
 
 }
 
-var _ = litter.Config
-
 func taskListItem(b *bytes.Buffer, pos int, node *blackfriday.Node, step RenderStep) WalkStatus {
+
 	if step != RenderStart || node.Parent == nil || node.Parent.Parent == nil || node.Parent.Parent.Type != blackfriday.Item {
 		return WalkStatusContinue
 	}
 
-	//fmt.Printf(">> %v %s %v\n", node.FirstChild.Type, "FOO", string(node.FirstChild.Literal))
-
-	item := node.Literal
 	var newItem []byte
 
 	switch {
-	case bytes.HasPrefix(item, []byte("[ ] ")):
-		newItem = append([]byte(`<label><input type="checkbox" disabled class="task-list-item">`), item[3:]...)
+	case bytes.HasPrefix(node.Literal, []byte("[ ] ")):
+		newItem = append([]byte(`<label><input type="checkbox" disabled class="task-list-item">`), node.Literal[3:]...)
 		newItem = append(newItem, []byte(`</label>`)...)
-	case bytes.HasPrefix(item, []byte("[x] ")) || bytes.HasPrefix(item, []byte("[X] ")):
-		newItem = append([]byte(`<label><input type="checkbox" checked disabled class="task-list-item">`), item[3:]...)
+	case bytes.HasPrefix(node.Literal, []byte("[x] ")) || bytes.HasPrefix(node.Literal, []byte("[X] ")):
+		newItem = append([]byte(`<label><input type="checkbox" checked disabled class="task-list-item">`), node.Literal[3:]...)
 		newItem = append(newItem, []byte(`</label>`)...)
 	}
 
