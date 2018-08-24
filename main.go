@@ -17,7 +17,7 @@ func main() {
 	defer f.Close()
 
 	var b bytes.Buffer
-	run(md, &b)
+	run(md, &b, nil)
 	b.WriteTo(f)
 
 	//fmt.Println("BlackFriday v2 Test:\n", string(output))
@@ -28,7 +28,7 @@ type mods struct {
 	modifiers []RenderModifier
 }
 
-func run(input string, out *bytes.Buffer, opts ...blackfriday.Option) {
+func run(input string, out *bytes.Buffer, nodeCallback func(n *blackfriday.Node), opts ...blackfriday.Option) {
 	r := blackfriday.NewHTMLRenderer(blackfriday.HTMLRendererParameters{
 		Flags: blackfriday.CommonHTMLFlags,
 	})
@@ -57,6 +57,9 @@ func run(input string, out *bytes.Buffer, opts ...blackfriday.Option) {
 	}
 
 	ast.Walk(func(node *blackfriday.Node, entering bool) blackfriday.WalkStatus {
+		if nodeCallback != nil {
+			nodeCallback(node)
+		}
 
 		mods := getMods(node)
 

@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"testing"
+
+	"github.com/russross/blackfriday"
 )
 
 func TestMain(t *testing.T) {
 	var b bytes.Buffer
-	run(md, &b)
+	run(md, &b, nil)
 
 	if b.String() != `<h2>Heading 1</h2>
 
@@ -44,5 +46,19 @@ func TestMain(t *testing.T) {
 </div>
 ` {
 		t.Fatal(b.String())
+	}
+}
+
+func BenchmarkGetModifiers(b *testing.B) {
+	var nodes []*blackfriday.Node
+	var buf bytes.Buffer
+	run(md, &buf, func(node *blackfriday.Node) {
+		nodes = append(nodes, node)
+	})
+
+	for n := 0; n < b.N; n++ {
+		for _, node := range nodes {
+			GetRenderMods(node)
+		}
 	}
 }
