@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"sync"
 
 	"github.com/russross/blackfriday"
 )
@@ -33,26 +34,46 @@ var renderMods = map[[3]blackfriday.NodeType][]RenderModifier{
 	[3]blackfriday.NodeType{blackfriday.Item, blackfriday.Paragraph, blackfriday.Text}: []RenderModifier{taskListItem},
 }
 
+var (
+	cache   = make(map[[3]blackfriday.NodeType][]RenderModifier)
+	cacheMu sync.RWMutex
+)
+
 func GetRenderMods(node *blackfriday.Node) []RenderModifier {
 	k := newSingle(node.Type)
-	var mods []RenderModifier
-
-	if m, found := renderMods[k]; found {
-		mods = append(mods, m...)
-	}
 
 	if node.Parent != nil {
 		k[1] = node.Parent.Type
-		if m, found := renderMods[k]; found {
-			mods = append(mods, m...)
-		}
 		if node.Parent.Parent != nil {
 			k[0] = node.Parent.Parent.Type
-			if m, found := renderMods[k]; found {
-				mods = append(mods, m...)
-			}
 		}
 	}
+
+	cacheMu.RLock()
+	mods, found := cache[k]
+	cacheMu.RUnlock()
+	if found {
+		return mods
+	}
+
+	var kk [3]blackfriday.NodeType
+	for i := 0; i < len(k); i++ {
+		kk[i] = k[i]
+	}
+
+	for i := 0; i < len(kk); i++ {
+		if kk[i] == -1 {
+			continue
+		}
+		if m, found := renderMods[kk]; found {
+			mods = append(mods, m...)
+		}
+		kk[i] = -1
+	}
+
+	cacheMu.Lock()
+	cache[k] = mods
+	cacheMu.Unlock()
 
 	return mods
 }
@@ -91,7 +112,7 @@ func taskList(b *bytes.Buffer, pos int, node *blackfriday.Node, step RenderStep)
 
 func taskListItem(b *bytes.Buffer, pos int, node *blackfriday.Node, step RenderStep) WalkStatus {
 
-	if step != RenderStart || node.Parent == nil || node.Parent.Parent == nil || node.Parent.Parent.Type != blackfriday.Item {
+	if step != RenderStart {
 		return WalkStatusContinue
 	}
 

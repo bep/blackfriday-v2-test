@@ -56,6 +56,7 @@ func BenchmarkGetModifiers(b *testing.B) {
 		nodes = append(nodes, node)
 	})
 
+	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		for _, node := range nodes {
 			GetRenderMods(node)
